@@ -1,7 +1,7 @@
 // Copyright (c) Sandeep Mistry. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-#ifndef ARDUINO_ARCH_ESP32
+// #ifndef ARDUINO_ARCH_ESP32
 
 #include "MCP2515.h"
 
@@ -261,7 +261,7 @@ int MCP2515Class::parsePacket()
 void MCP2515Class::onReceive(void(*callback)(int))
 {
   CANControllerClass::onReceive(callback);
-
+/*
   pinMode(_intPin, INPUT);
 
   if (callback) {
@@ -273,6 +273,7 @@ void MCP2515Class::onReceive(void(*callback)(int))
     SPI.notUsingInterrupt(digitalPinToInterrupt(_intPin));
 #endif
   }
+  */
 }
 
 int MCP2515Class::filter(int id, int mask)
@@ -492,4 +493,4 @@ void MCP2515Class::onInterrupt()
 
 MCP2515Class CAN;
 
-#endif
+// #endif

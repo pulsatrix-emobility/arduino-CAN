@@ -31,6 +31,8 @@ public:
   virtual int read();
   virtual int peek();
   virtual void flush();
+  
+  virtual int rxId();
 
   virtual void onReceive(void(*callback)(int));
 

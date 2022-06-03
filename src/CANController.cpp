@@ -3,6 +3,9 @@
 
 #include "CANController.h"
 
+#define LOGGING_TAG "CANctrl"
+
+
 CANControllerClass::CANControllerClass() :
   _onReceive(NULL),
 
@@ -165,6 +168,11 @@ int CANControllerClass::read()
   }
 
   return _rxData[_rxIndex++];
+}
+
+int CANControllerClass::rxId()
+{
+  return _rxId;
 }
 
 int CANControllerClass::peek()

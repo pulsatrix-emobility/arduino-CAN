@@ -1,7 +1,7 @@
 // Copyright (c) Sandeep Mistry. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-#ifdef ARDUINO_ARCH_ESP32
+#ifdef ARDUINO_ARCH_ESP32_OFF
 
 #include "esp_intr.h"
 #include "soc/dport_reg.h"
