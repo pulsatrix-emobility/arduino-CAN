@@ -23,10 +23,10 @@
 //RejsaCAN 3.0b
 #define BLUE_LED          10  // GPIO10
 #define YELLOW_LED        11  // GPIO11
-#define FORCE_KEEP_ON     17  // GPIO17
+#define FORCE_KEEP_ON     17  // GPIO17   // OUTPUT   SET TO HIGH TO KEEP BOARD RUNNING WHEN POWER VOLTAGE DROPS BELOW 13,3V (WHEN CAR ENGINE ISN'T CHARGING THE CAR BATTERY)
 
-#define SENSE_V_DIG        8  // GPIO08
-#define SENSE_V_ANA        9  // GPIO09
+#define SENSE_V_DIG        8  // GPIO08   // INPUT    USE "INPUT_PULLUP". HIGH = CAR ENGINE IS RUNNING AND IS CHARGING CAR BATTERY
+#define SENSE_V_ANA        9  // GPIO09   // INPUT    UNCALIBRATED ANALOG REPRESENTATION OF CAR BATTERY VOLTAGE
 
 #define CAN_TX            14  // GPIO14
 #define CAN_RX            13  // GPIO13
@@ -40,6 +40,8 @@
 
 #define SDA                1  // GPIO01
 #define SCL                2  // GPIO02
+
+
 
 
 //Configuration
