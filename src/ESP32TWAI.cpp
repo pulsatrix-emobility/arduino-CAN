@@ -140,14 +140,15 @@ int ESP32TWAIClass::begin(long baudRate)
 
 
 // set filter to allow anything
-//f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
 // set filter (oly)
+/*
 uint32_t acccode = (uint32_t)0x7e8 <<21;
 uint32_t accmask = ((uint32_t)(0x7e8 ^ 0x7ec) <<21) | 0x1fffff; // 0x7e8 XOR 0x7ec  // VIN (smart & a3)
 
 f_config = {.acceptance_code = acccode, .acceptance_mask = accmask, .single_filter = true};
-
+*/
 
   //Install and start TWAI driver
   ESP_ERROR_CHECK(twai_driver_install(&g_config, &t_config, &f_config));
@@ -351,20 +352,26 @@ int ESP32TWAIClass::parsePacket()
 
 }
 
+
+
+// ----------------------------------------------------------------------
 // ----------------------------------------------------------------------
 int ESP32TWAIClass::udsRead(uint32_t txECU, uint16_t txID, uint32_t rxECU, uint8_t* rxData, uint8_t rxLen)
-// schickt ein UDS Kommando (0x22) an Steuergerät txID und schreibt die empfangenen 8 Bytes nach rxData
+// schickt ein UDS Kommando (0x22) an Steuergerät txID und schreibt die empfangenen Bytes nach rxData
 {
   ESP_LOGI(LOGGING_TAG, "udsRead");
-
 
   if ((txECU > CAN_EXTD_ID_MASK) || (rxECU > CAN_EXTD_ID_MASK)) {
     return 0;
   }
 
+  bool extMsg;
+
   if ((txECU & CAN_STD_ID_MASK) == txECU) {
+    extMsg = false;
     beginPacket(txECU, 8);              // 11bit
   }else{
+    extMsg = true;    
     beginExtendedPacket(txECU, 8);      // 29bit
   }
 
@@ -387,22 +394,81 @@ int ESP32TWAIClass::udsRead(uint32_t txECU, uint16_t txID, uint32_t rxECU, uint8
     }
   }
 
-  for (unsigned long start = millis(); (millis() - start) < CAN_DEFAULT_TIMEOUT;) {
-    if ((parsePacket() != 0)
-//            && (CAN.rxId() == rxECU)                    // hat die gewünschte ECU hat geantwortet
-            && (CAN.read() > 0x03)                      // antwortlänge, sind daten dabei
-            && (CAN.read() == (0x22 | 0x40))            // antwort auf Kommando 0x22 (ergibt 0x62)
-            && (CAN.read() == ((txID & 0xff00) >> 8))   // ist es die antwort auf identifier 1st byte
-            && (CAN.read() == (txID & 0xff)) ) {        // ist es die antwort auf identifier 2nd byte
+  bool splitResponse = (rxLen > 4);     // es werden mehr als 4 Bytes angefordert, das wird 'ne Multiframe-Antwort
+
+  if (rxLen > 4) {
+    ESP_LOGW(LOGGING_TAG, "udsRead: expecting MultiFrame Message");
+/* 
+VIN (10 14 62 F8 02 57 56 57)
+0x1014 which means extended message with a length of 0x14 = 20 bytes. 
+Then 0x62 means a reply to the 0x22 UDS READ request and 0xF802 is the PID that was requested. 
+The last 3 Bytes (57 56 57) are the first 3 Bytes of data.
+
+ */
+
+    for (unsigned long start = millis(); (millis() - start) < CAN_DEFAULT_TIMEOUT;) {
+      if ((parsePacket() != 0)
+//              && (rxECU == 0 ? true : CAN.rxId() == rxECU)                    // hat die gewünschte ECU hat geantwortet
+              && (CAN.read() == 0x10)                     // [0] 0x10 = Extended Message
+              && (CAN.read())                             // [1] Länge der Nachricht
+              && (CAN.read() == (0x22 | 0x40))            // [2] antwort auf Kommando 0x22 (ergibt 0x62)
+              && (CAN.read() == ((txID & 0xff00) >> 8))   // [3] ist es die antwort auf identifier 1st byte
+              && (CAN.read() == (txID & 0xff)) ) {        // [4] ist es die antwort auf identifier 2nd byte
 
 
-ESP_LOGI(LOGGING_TAG, "udsRead: SUCCESS - got response");
+        ESP_LOGI(LOGGING_TAG, "udsRead: SUCCESS - got response from %03x", CAN.rxId());
 
-      // got response
-      return CAN.readBytes((uint8_t*)rxData, rxLen);    // restliche Datenbytes nach rxData einlesen (können max. 4 sein)
-    }else{
-      // noch nicht die richtigen Daten angekommen
-      delay(50);
+        int read = 0;
+        read += CAN.readBytes((uint8_t*)rxData, 3);         // und jetzt die restlichen 3 bytes
+
+        for (int i = 0; read < rxLen; i++) {
+          delay(30);                                    // kurz warten mit dem ACK
+
+          // send request for the next chunk
+          if (extMsg) {
+  //          CAN.beginExtendedPacket(OBD2_CAN29_BROADCAST_ID, 8); // 0x18db33f1
+            CAN.beginExtendedPacket(CAN.rxId() -8, 8);  // so wird korrekt geantwortet
+          } else {
+            CAN.beginPacket(CAN.rxId() -8, 8);  // so wird korrekt geantwortet
+          }
+          CAN.write(0x30);                      // 0x30 = ok, schick' mehr (flow-control)
+          CAN.write(0x01);                      // 0x01 = bitte nur einen weiteren Frame
+          CAN.write(0x00);                      // 0x00 = so schnell wie möglich
+          CAN.endPacket();
+
+          ESP_LOGI(LOGGING_TAG, "wait for CAN Response");
+
+          while ((CAN.parsePacket() == 0) || (CAN.read() != (0x21 + i))){
+            if ((millis() - start) > CAN_DEFAULT_TIMEOUT){   // timeout
+              return 0;
+            }
+          }
+          while (CAN.available()) {
+            ((uint8_t*)rxData)[read++] = CAN.read();
+          }  
+        }
+
+        return read;
+      }
+    }
+
+  }else{
+    ESP_LOGW(LOGGING_TAG, "udsRead: expecting SingleFrame Message");    
+
+    for (unsigned long start = millis(); (millis() - start) < CAN_DEFAULT_TIMEOUT;) {
+      if ((parsePacket() != 0)
+  //            && (CAN.rxId() == rxECU)                    // hat die gewünschte ECU hat geantwortet?
+              && (CAN.read() > 0x03)                      // [0] antwortlänge, bei >3 sind daten dabei
+              && (CAN.read() == (0x22 | 0x40))            // [1] antwort auf Kommando 0x22 (ergibt 0x62)
+              && (CAN.read() == ((txID & 0xff00) >> 8))   // [2] ist es die antwort auf identifier 1st byte
+              && (CAN.read() == (txID & 0xff)) ) {        // [3] ist es die antwort auf identifier 2nd byte
+
+
+        ESP_LOGI(LOGGING_TAG, "udsRead: SUCCESS - got response");
+
+        // got response
+        return CAN.readBytes((uint8_t*)rxData, rxLen);    // restliche Datenbytes nach rxData einlesen (können max. 4 sein)
+      }
     }
   }
 
@@ -412,7 +478,7 @@ ESP_LOGI(LOGGING_TAG, "udsRead: SUCCESS - got response");
 }
 
 // ----------------------------------------------------------------------
-int ESP32TWAIClass::canCMD(uint32_t txECU, uint8_t* txData)
+int ESP32TWAIClass::canCMD(uint32_t txECU, uint8_t* txData, uint32_t rxECU)
 // sendet 8 Bytes txData an txECU
 {
   ESP_LOGI(LOGGING_TAG, "canCMD");
@@ -442,12 +508,35 @@ int ESP32TWAIClass::canCMD(uint32_t txECU, uint8_t* txData)
 
   ESP_LOGI(LOGGING_TAG, "canCMD: success");
 
-  return 1;
+//  return 1;
+
+
+  ESP_LOGW(LOGGING_TAG, "canCMD: expecting SingleFrame Message");    
+
+  for (unsigned long start = millis(); (millis() - start) < CAN_DEFAULT_TIMEOUT;) {
+    if ((parsePacket() != 0)
+            && (CAN.rxId() == rxECU)                    // hat die gewünschte ECU hat geantwortet?
+            && (CAN.read() > 0x03)                      // [0] antwortlänge, bei >3 sind daten dabei
+//            && (CAN.read() == (0x22 | 0x40))            // [1] antwort auf Kommando 0x22 (ergibt 0x62)
+//            && (CAN.read() == ((txID & 0xff00) >> 8))   // [2] ist es die antwort auf identifier 1st byte
+//            && (CAN.read() == (txID & 0xff))            // [3] ist es die antwort auf identifier 2nd byte
+    ){
+
+      ESP_LOGI(LOGGING_TAG, "canCMD: SUCCESS - got response");
+
+      // got response
+//      return CAN.readBytes((uint8_t*)rxData, rxLen);    // restliche Datenbytes nach rxData einlesen (können max. 4 sein)
+      return 1;
+    }
+  }
+
+  return 0;
 }
 
 // ----------------------------------------------------------------------
 int ESP32TWAIClass::peekPacket(uint32_t identifier, uint8_t *CANdata, uint32_t timeout_ms)
 // wartet timeout_ms bis ein CAN-Paket mit der ID identifier ge-broadcastet wird
+// und schreibt alle 8 empfangenen CAN-Bytes nach CANdata
 {
   ESP_LOGI(LOGGING_TAG, "peekPacket: waiting for a special incoming packet: 0x%x", identifier); 
 
@@ -517,6 +606,17 @@ void ESP32TWAIClass::onReceive(void(*callback)(int))
   CANControllerClass::onReceive(callback);
 }
 
+// ----------------------------------------------------------------------
+int ESP32TWAIClass::powerOff()
+// if ignition is OFF & USB-Power is not connected - the Module will immediately loose power
+{
+  ESP_LOGI(LOGGING_TAG, "shutdown ESP32TWAI CAN Dongle in 3s");
+  delay(3000);
+
+  digitalWrite(FORCE_KEEP_ON, LOW);
+
+  return 1;
+}
 
 // ----------------------------------------------------------------------
 int ESP32TWAIClass::sleep()
