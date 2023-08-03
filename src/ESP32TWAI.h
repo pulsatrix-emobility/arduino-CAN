@@ -20,12 +20,7 @@ public:
   virtual void end();
 
   virtual int endPacket();
-
   virtual int parsePacket();
-  virtual int peekPacket(uint32_t identifier, uint8_t *CANdata, uint32_t timeout_ms);
-
-  virtual int udsRead(uint32_t txECU, uint16_t txID, uint32_t rxECU, uint8_t* rxData, uint8_t rxLen);
-  virtual int canCMD(uint32_t txECU, uint8_t* txData);
 
   virtual void onReceive(void(*callback)(int));
 
@@ -34,6 +29,7 @@ public:
   using CANControllerClass::filterExtended;
   virtual int filterExtended(long id, long mask);
 
+  virtual int powerOff();
   virtual int sleep();
   virtual int wakeup();
 
