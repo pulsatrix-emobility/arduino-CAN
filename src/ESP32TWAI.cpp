@@ -79,10 +79,12 @@ static const twai_general_config_t g_config = {.mode = TWAI_MODE_NORMAL,
 ESP32TWAIClass::ESP32TWAIClass() :
   CANControllerClass()
 {
+/*
   ESP_LOGW(LOGGING_TAG, "FORCE_KEEP_ON for the ESP32TWAI CAN Dongle");
 
   pinMode(FORCE_KEEP_ON, OUTPUT);
   digitalWrite(FORCE_KEEP_ON, HIGH);
+*/
 }
 
 ESP32TWAIClass::~ESP32TWAIClass()
@@ -103,12 +105,12 @@ int ESP32TWAIClass::begin(long baudRate)
   pinMode(SENSE_V_DIG, INPUT_PULLUP);
 
   pinMode(FORCE_KEEP_ON, OUTPUT);
-  digitalWrite(FORCE_KEEP_ON, HIGH);
+  // digitalWrite(FORCE_KEEP_ON, HIGH);
+  digitalWrite(FORCE_KEEP_ON, LOW);         // no power, no CANconnect (wegen Alarmanlage BMWi)
 
-/*
+
   pinMode(BLUE_LED, OUTPUT);
   digitalWrite(BLUE_LED, LOW);
- */
 
   pinMode(YELLOW_LED, OUTPUT);
   digitalWrite(YELLOW_LED, HIGH);
@@ -237,13 +239,14 @@ void ESP32TWAIClass::end()
 }
 
 // ----------------------------------------------------------------------
+// überträgt die in den Klassenvariablen (_txData, ...)gesammelten Daten 
 int ESP32TWAIClass::endPacket()
 {
   if (!CANControllerClass::endPacket()) {
     return 0;
   }
  // ESP_LOGI(LOGGING_TAG, "endPacket"); 
-
+  digitalWrite(YELLOW_LED, HIGH);
 
   TWAI_TX_message.extd = _txExtended;
   TWAI_TX_message.identifier = _txId;
@@ -260,103 +263,117 @@ int ESP32TWAIClass::endPacket()
     }
   }
 
-  digitalWrite(YELLOW_LED, HIGH);
   _TWAI_TX_state = twai_transmit(&TWAI_TX_message, pdMS_TO_TICKS(TWAI_DEFAULT_TIMEOUT));
   digitalWrite(YELLOW_LED, LOW);
 
-  if (_TWAI_TX_state == ESP_OK) {
-    ESP_LOGI(LOGGING_TAG, "TX %03x <- (l:%02x) (d:%02x %02x %02x %02x %02x %02x %02x %02x)", TWAI_TX_message.identifier,  TWAI_TX_message.data_length_code, TWAI_TX_message.data[0],  TWAI_TX_message.data[1],  TWAI_TX_message.data[2],  TWAI_TX_message.data[3],  TWAI_TX_message.data[4],  TWAI_TX_message.data[5],  TWAI_TX_message.data[6],  TWAI_TX_message.data[7]);
-  }else{
-      switch (_TWAI_TX_state) {
-        case ESP_ERR_TIMEOUT:
-          ESP_LOGE(LOGGING_TAG, "endPacket: ESP_ERR_TIMEOUT"); 
-          break;
-
-        case ESP_ERR_INVALID_ARG:
-          ESP_LOGE(LOGGING_TAG, "endPacket: ESP_ERR_INVALID_ARG"); 
-          break;
-
-        case ESP_ERR_INVALID_STATE:
-          ESP_LOGE(LOGGING_TAG, "endPacket: ESP_ERR_INVALID_STATE"); 
-          break;
-
-        default:
-          ESP_LOGE(LOGGING_TAG, "endPacket: unknown error: %x", _TWAI_TX_state); 
-          break;
-      }    
-    ESP_LOGE(LOGGING_TAG, "FAIL: TX %03x <- (l:%02x) (d:%02x %02x %02x %02x %02x %02x %02x %02x)", TWAI_TX_message.identifier,  TWAI_TX_message.data_length_code, TWAI_TX_message.data[0],  TWAI_TX_message.data[1],  TWAI_TX_message.data[2],  TWAI_TX_message.data[3],  TWAI_TX_message.data[4],  TWAI_TX_message.data[5],  TWAI_TX_message.data[6],  TWAI_TX_message.data[7]);
+  switch (_TWAI_TX_state) {
+    case ESP_OK:
+      ESP_LOGI(LOGGING_TAG, "TX %03x <- (l:%02x) (d:%02x %02x %02x %02x %02x %02x %02x %02x)", TWAI_TX_message.identifier,  TWAI_TX_message.data_length_code, TWAI_TX_message.data[0],  TWAI_TX_message.data[1],  TWAI_TX_message.data[2],  TWAI_TX_message.data[3],  TWAI_TX_message.data[4],  TWAI_TX_message.data[5],  TWAI_TX_message.data[6],  TWAI_TX_message.data[7]);
+      return 1;
+      break;                // never reach here
+    case ESP_ERR_TIMEOUT:
+      ESP_LOGE(LOGGING_TAG, "endPacket: ESP_ERR_TIMEOUT"); 
+      break;
+    case ESP_ERR_INVALID_ARG:
+      ESP_LOGE(LOGGING_TAG, "endPacket: ESP_ERR_INVALID_ARG"); 
+      break;
+    case ESP_ERR_INVALID_STATE:
+      ESP_LOGE(LOGGING_TAG, "endPacket: ESP_ERR_INVALID_STATE"); 
+      break;
+    default:
+      ESP_LOGE(LOGGING_TAG, "endPacket: unknown error: %x", _TWAI_TX_state); 
+      break;
   }
+  ESP_LOGE(LOGGING_TAG, "FAIL: TX %03x <- (l:%02x) (d:%02x %02x %02x %02x %02x %02x %02x %02x)", TWAI_TX_message.identifier,  TWAI_TX_message.data_length_code, TWAI_TX_message.data[0],  TWAI_TX_message.data[1],  TWAI_TX_message.data[2],  TWAI_TX_message.data[3],  TWAI_TX_message.data[4],  TWAI_TX_message.data[5],  TWAI_TX_message.data[6],  TWAI_TX_message.data[7]);
 
-
-  if (_TWAI_TX_state == ESP_OK) {
-    return 1;
-  }else{
-    return 0;
-  }
-
+  return 0;
 }
 
 // ----------------------------------------------------------------------
+// wartet auf ein eingehendes Paket
 int ESP32TWAIClass::parsePacket()
 {
 //  ESP_LOGI(LOGGING_TAG, "parsePacket: waiting for incoming packet"); 
 
   twai_message_t rx_msg;
 
-  esp_err_t trErrCode = twai_receive(&rx_msg, pdMS_TO_TICKS(TWAI_DEFAULT_TIMEOUT));  // war: portMAX_DELAY
   digitalWrite(YELLOW_LED, HIGH);
+  esp_err_t trErrCode = twai_receive(&rx_msg, pdMS_TO_TICKS(TWAI_DEFAULT_TIMEOUT));  // war: portMAX_DELAY
+  digitalWrite(YELLOW_LED, LOW);
 
-  if (trErrCode == ESP_OK) {
+  switch (trErrCode) {
+    case ESP_OK:
+      ESP_LOGI(LOGGING_TAG, "RX %03x -> (l:%02x) (d:%02x %02x %02x %02x %02x %02x %02x %02x)", rx_msg.identifier, rx_msg.data_length_code, rx_msg.data[0], rx_msg.data[1], rx_msg.data[2], rx_msg.data[3], rx_msg.data[4], rx_msg.data[5], rx_msg.data[6], rx_msg.data[7]);
 
-    ESP_LOGI(LOGGING_TAG, "RX %03x -> (l:%02x) (d:%02x %02x %02x %02x %02x %02x %02x %02x)", rx_msg.identifier, rx_msg.data_length_code, rx_msg.data[0], rx_msg.data[1], rx_msg.data[2], rx_msg.data[3], rx_msg.data[4], rx_msg.data[5], rx_msg.data[6], rx_msg.data[7]);
+      _rxExtended = (rx_msg.extd) ? true : false;
+      _rxRtr = (rx_msg.rtr) ? true : false;
+      _rxDlc = (rx_msg.data_length_code & 0x0f);
+      _rxIndex = 0;
 
-    _rxExtended = (rx_msg.extd) ? true : false;
-    _rxRtr = (rx_msg.rtr) ? true : false;
-    _rxDlc = (rx_msg.data_length_code & 0x0f);
-    _rxIndex = 0;
+      _rxId = rx_msg.identifier;
 
-    _rxId = rx_msg.identifier;
+      if (_rxRtr) {
+        ESP_LOGI(LOGGING_TAG, "parsePacket: RtR Message");        
+        _rxLength = 0;
+      } else {
+        _rxLength = _rxDlc;
 
-
-    if (_rxRtr) {
-      ESP_LOGI(LOGGING_TAG, "parsePacket: RtR Message");        
-      _rxLength = 0;
-    } else {
-      _rxLength = _rxDlc;
-
-      for (int i = 0; i < _rxLength; i++) {
-        _rxData[i] = rx_msg.data[i];
+        for (int i = 0; i < _rxLength; i++) {
+          _rxData[i] = rx_msg.data[i];
+        }
       }
-    }
+      return _rxLength;
+      break;                // never reach here
+    case ESP_ERR_TIMEOUT:
+      ESP_LOGE(LOGGING_TAG, "parsePacket: ESP_ERR_TIMEOUT"); 
+      break;
+    case ESP_ERR_INVALID_ARG:
+      ESP_LOGE(LOGGING_TAG, "parsePacket: ESP_ERR_INVALID_ARG"); 
+      break;
+    case ESP_ERR_INVALID_STATE:
+      ESP_LOGE(LOGGING_TAG, "parsePacket: ESP_ERR_INVALID_STATE"); 
+      break;
+    default:
+      ESP_LOGE(LOGGING_TAG, "parsePacket: unknown error: %x", trErrCode); 
+      break;
+  }
 
+  return 0;     // error or timeout
+
+}
+
+// ----------------------------------------------------------------------
+// loop. zeigt alle Pakete
+int ESP32TWAIClass::sniffer()
+{
+  ESP_LOGE(LOGGING_TAG, "----->>> entering sniffer mode"); 
+  twai_message_t rx_msg;
+
+  filterExtended(0, CAN_EXTD_ID_MASK);
+  // CAN.filter(0x650, ~(0x6f1 & 0x650));    // BMW i OBD-Erkennung Filter
+  // CAN.filter(0x694, ~(0x6af & 0x6bf));              // Opel Vivaro-e
+
+  while(1){
+    digitalWrite(YELLOW_LED, HIGH);
+    esp_err_t trErrCode = twai_receive(&rx_msg, pdMS_TO_TICKS(portMAX_DELAY));
     digitalWrite(YELLOW_LED, LOW);
-    return _rxLength;
 
-  }else{
     switch (trErrCode) {
+      case ESP_OK:
+        ESP_LOGI(LOGGING_TAG, "%03x <-> (%02x %02x %02x %02x %02x %02x %02x %02x) (l:%02x) (x: %d) (rtr: %d)", rx_msg.identifier, rx_msg.data[0], rx_msg.data[1], rx_msg.data[2], rx_msg.data[3], rx_msg.data[4], rx_msg.data[5], rx_msg.data[6], rx_msg.data[7], rx_msg.data_length_code, rx_msg.extd, rx_msg.rtr);
+        break;
       case ESP_ERR_TIMEOUT:
         ESP_LOGE(LOGGING_TAG, "parsePacket: ESP_ERR_TIMEOUT"); 
         break;
-
-      case ESP_ERR_INVALID_ARG:
-        ESP_LOGE(LOGGING_TAG, "parsePacket: ESP_ERR_INVALID_ARG"); 
-        break;
-
-      case ESP_ERR_INVALID_STATE:
-        ESP_LOGE(LOGGING_TAG, "parsePacket: ESP_ERR_INVALID_STATE"); 
-        break;
-
       default:
         ESP_LOGE(LOGGING_TAG, "parsePacket: unknown error: %x", trErrCode); 
         break;
     }
 
-    digitalWrite(YELLOW_LED, LOW);
-    return 0;     // error or timeout
+    delay(10);   // ist zu lange, da fehlen päckchen, obs wohl komplett ohne geht?
+                // evtl. die rq_quelen von 5 erweitern auf xxx ?
   }
-
 }
-
 
 
 
@@ -369,22 +386,30 @@ void ESP32TWAIClass::onReceive(void(*callback)(int))
 }
 
 // ----------------------------------------------------------------------
-int ESP32TWAIClass::powerOff()
+void ESP32TWAIClass::powerOff()
+// if ignition is OFF & USB-Power is not connected - the Module will immediately loose power
+// if Module is still awake, disconnect from CAN
+{
+  forceKeepOn(LOW);
+
+  while(1){
+    ESP_LOGI(LOGGING_TAG, "This is the End.");
+    delay(10000);
+  }
+}
+
+// ----------------------------------------------------------------------
+void ESP32TWAIClass::forceKeepOn(bool alwaysOn)
 // if ignition is OFF & USB-Power is not connected - the Module will immediately loose power
 {
-  ESP_LOGI(LOGGING_TAG, "shutdown ESP32TWAI CAN Dongle in 3s");
-  delay(3000);
-
-  digitalWrite(FORCE_KEEP_ON, LOW);
-
-  return 1;
+  digitalWrite(FORCE_KEEP_ON, alwaysOn);
 }
 
 // ----------------------------------------------------------------------
 int ESP32TWAIClass::sleep()
 {
   ESP_ERROR_CHECK(twai_stop());
-  ESP_LOGI(LOGGING_TAG, "Driver stopped");
+  ESP_LOGE(LOGGING_TAG, "Driver stopped");
 /*
   ESP_ERROR_CHECK(twai_driver_uninstall());
   ESP_LOGI(LOGGING_TAG, "Driver uninstalled");
@@ -433,13 +458,22 @@ int ESP32TWAIClass::qIgnition()
 }
 
 // ----------------------------------------------------------------------
-int ESP32TWAIClass::qVoltage()
+uint16_t ESP32TWAIClass::qVoltage()
 {
-  int voltage = analogRead(SENSE_V_ANA);
-//  ESP_LOGI(LOGGING_TAG, "qVoltage: %d", voltage);
+  uint16_t analog = analogRead(SENSE_V_ANA);
+  uint16_t voltage = analogReadMilliVolts(SENSE_V_ANA);
+
+  ESP_LOGI(LOGGING_TAG, "qAnalog: %d, qVoltage: %d", analog, voltage);
 
   return voltage;
 }
+
+// ----------------------------------------------------------------------
+void ESP32TWAIClass::blueLED(bool state)
+{
+  digitalWrite(BLUE_LED, state);
+}
+
 
 
 // ----------------------------------------------------------------------

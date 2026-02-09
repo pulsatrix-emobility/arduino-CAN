@@ -29,7 +29,8 @@ public:
   using CANControllerClass::filterExtended;
   virtual int filterExtended(long id, long mask);
 
-  virtual int powerOff();
+  virtual void forceKeepOn(bool alwaysOn);
+  virtual void powerOff();
   virtual int sleep();
   virtual int wakeup();
 
@@ -37,11 +38,14 @@ public:
   virtual int clearTXqueue();
 
   virtual int qIgnition();
-  virtual int qVoltage();
+  virtual uint16_t qVoltage();
 
+  virtual void blueLED(bool state);
+
+  virtual int sniffer();
+  
 private:
   void reset();
-
 };
 
 extern ESP32TWAIClass CAN;
