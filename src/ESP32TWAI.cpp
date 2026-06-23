@@ -390,12 +390,13 @@ void ESP32TWAIClass::powerOff()
 // if ignition is OFF & USB-Power is not connected - the Module will immediately loose power
 // if Module is still awake, disconnect from CAN
 {
-  forceKeepOn(LOW);
+  ESP32TWAIClass::forceKeepOn(LOW);
+  // ESP32TWAIClass::end();
 
-  while(1){
+  // while(1){
     ESP_LOGI(LOGGING_TAG, "This is the End.");
-    delay(10000);
-  }
+    // delay(10000);
+  // }
 }
 
 // ----------------------------------------------------------------------
